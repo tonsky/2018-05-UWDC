@@ -9,7 +9,7 @@ const firebse = window.firebase;
 var deck_url       = "bit.ly/uwdc2018", 
     last_question  = null,
     slides_prefix  = "../jpegs/",
-    slides         = ["100.jpg", "110.jpg", "112.jpg", "114.jpg", "116.jpg", "118.jpg", "120.jpg", "130.jpg", "132.jpg", "134.jpg", "136.jpg", "138.jpg", "140.jpg", "150.jpg", "210.jpg", "220.jpg", "230.jpg", "240.jpg", "250.jpg", "260.jpg", "270.jpg", "280.jpg", "290.jpg", "300.jpg", "310.jpg", "320.jpg", "330.jpg", "332.jpg", "334.jpg", "336.jpg", "340.jpg", "350.jpg", "360.jpg", "363.jpg", "365.jpg", "367.jpg", "370.jpg", "380.jpg", "390.jpg", "395.jpg", "400.stats.jpg", "410.jpg", "420.jpg", "440.jpg", "450.jpg", "460.time.jpg", "470.jpg", "480.jpg", "490.jpg", "500.jpg", "510.jpg", "520.jpg", "530.jpg", "540.jpg", "580.jpg", "590.jpg", "600.jpg", "610.jpg", "620.jpg", "630.jpg"],
+    slides         = ["100.jpg", "110.jpg", "112.jpg", "114.jpg", "116.jpg", "118.jpg", "120.jpg", "130.jpg", "132.jpg", "134.jpg", "136.jpg", "138.jpg", "140.jpg", "150.jpg", "210.jpg", "220.jpg", "230.jpg", "240.jpg", "250.jpg", "260.jpg", "270.jpg", "280.jpg", "290.jpg", "300.jpg", "310.jpg", "320.jpg", "330.jpg", "332.jpg", "334.jpg", "336.jpg", "340.jpg", "350.jpg", "360.jpg", "363.jpg", "365.jpg", "367.jpg", "380.jpg", "390.jpg", "395.jpg", "400.graph.jpg", "405.stats.jpg", "410.jpg", "420.jpg", "440.jpg", "445.jpg", "450.jpg", "460.time.jpg", "470.jpg", "480.jpg", "490.jpg", "500.jpg", "510.jpg", "520.jpg", "530.jpg", "540.jpg", "580.jpg", "590.jpg", "600.jpg", "610.jpg", "620.jpg", "630.jpg"],
     slides_ratio = 16/9,
     slides_loaded = 0,
     slides_failed = 0;
@@ -77,7 +77,9 @@ var counter = 0,
     setback_str = "",
     conflicts = 0,
     uncorrected_offsets = [],
-    corrected_offsets = [];
+    corrected_offsets = [],
+    counter_history = [],
+    counter_cas_history = [];
 
 $counter.on("value", (s) => { if (s.val()) { counter = s.val(); rerender(); }});
 $counter_cas.on("value", (s) => { if (s.val()) { counter_cas = s.val(); rerender(); }});
@@ -93,6 +95,8 @@ $oplog.orderByChild("server_time").on("child_added", function(s) {
   }
   uncorrected_offsets.push((op.local_time - op.server_time)/1000);
   corrected_offsets.push((op.corrected_time - op.server_time)/1000);
+  counter_history.push({t: op.server_time, v: op.to, op: op});
+  counter_cas_history.push({t: op.server_time, v: counter_cas_history.length + 1});
   last_to = op.to;
   rerender();
 });
@@ -126,6 +130,45 @@ function distribute_thresholds(from, to, ticks) {
   return res;
 }
 
+class Graph extends Component {
+  componentDidMount() { this.redraw(); }
+  componentDidUpdate() { this.redraw(); }
+  render(props) {
+    return h("svg", { id: props.id, class: "graph", width: deck_width, height: deck_height });
+  }
+  redraw() {
+    if (this.props.data.length < 1) return;
+    var svg = d3.select("svg#" + this.props.id),
+        data = this.props.data,
+        _ = svg.selectAll("*").remove(),
+        width = svg.attr("width") - 100,
+        height = svg.attr("height") - 100, 
+        g = svg.append("g").attr("transform", "translate(50,50)"),
+        x = d3.scaleLinear().rangeRound([0, width]).domain([data[0].t, data[data.length-1].t]),
+        y = d3.scaleLinear().rangeRound([height, 0]).domain(this.props.range);
+    g.append("path")
+      .data([data])
+      .attr("class", "line")
+      .attr("d", d3.line().x(d=>x(d.t)).y(d=>y(d.v)));
+    g.append("g").call(d3.axisLeft(y));
+    g.append("g").attr("transform", "translate(0," + height + ")")
+     .call(d3.axisBottom(x).tickFormat(d3.timeFormat("%H:%M:%S")));
+
+  }
+}
+
+class GraphSlide extends Component {
+  render(props) {
+    var max_v = Math.max(d3.max(counter_history, d=>d.v),
+                         d3.max(counter_cas_history, d=>d.v));
+    return h("div", {}, 
+             h(Graph, { id: "naive", data: counter_history, range: [0, max_v] }),
+             h(Graph, { id: "cas", data: counter_cas_history, range: [0, max_v] })
+    );
+  }
+}
+
+
 class Histogram extends Component {
   componentDidMount() { this.redraw(); }
   componentDidUpdate() { this.redraw(); }
@@ -141,7 +184,7 @@ class Histogram extends Component {
         g = svg.append("g").attr("transform", "translate(10,20)"),
         formatCount = d3.format(",.0f"),
         x = d3.scaleLinear().domain([-this.props.range, this.props.range]).rangeRound([0, width]),
-        ticks = 21,
+        ticks = 101,
         thresholds = distribute_thresholds(-this.props.range, this.props.range, ticks),
         bins = d3.histogram().domain(x.domain()).thresholds(thresholds)(data),
         rect_width = width/ticks - 2,
@@ -151,23 +194,23 @@ class Histogram extends Component {
               .enter()
               .append("g")
               .attr("class", "bar")
-              .attr("transform", function(d) {
-                return "translate(" + x(d.x0) + "," + y(d.length) + ")";
-              });
+              .attr("transform", d=>"translate(" + x(d.x0) + "," + y(d.length) + ")");
     
     bar.append("rect").attr("x", 1)
       .attr("width", rect_width)
       .attr("height", function(d) { return height - y(d.length); });
-    bar.append("text")
+    g.selectAll(".text").data(bins).enter().append("text")
       .attr("dy", ".75em")
       .attr("y", -15)
       .attr("x", rect_width / 2)
       .attr("text-anchor", "middle")
+      .attr("fill", "#c33")
+      .attr("transform", d=>"translate(" + x(d.x0) + "," + y(d.length) + ")")
       .text(function(d) { return d.length > 0 ? formatCount(d.length) : ""; });
     g.append("g")
     .attr("class", "axis axis--x")
     .attr("transform", "translate(0," + height + ")")
-    .call(d3.axisBottom(x));
+    .call(d3.axisBottom(x).ticks(31));
   }
 }
 
@@ -220,6 +263,7 @@ class Slide extends Component {
     return h('div', {class: "slide " + cls, 
                      id:    "slide_" + props.pos,
                      style: { backgroundImage: src }},
+             /graph/.test(props.slide) ? h(GraphSlide) : null,
              /stats/.test(props.slide) ? h(StatSlide) : null,
              /time/.test(props.slide) ? h(TimeSlide) : null,);
   }

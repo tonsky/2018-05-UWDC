@@ -71,6 +71,10 @@ body { background: #f4f4f4; color: #58656E; }
 .time_stats .bar > text { fill: currentColor; }
 .time-label { position: absolute; margin: -25px 0 0 22px; }
 
+svg.graph { background: transparent; position: absolute; }
+svg.graph .line { fill: none; stroke: black; stroke-width: 2px; }
+svg.graph#naive .line { stroke: red; }
+
 /* COUNTER */
 
 
