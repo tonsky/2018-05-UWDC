@@ -80,11 +80,13 @@ database.ref(".info/serverTimeOffset").on("value", (s) => clock_skew = s.val());
 // COUNTER
 
 var counter = 0,
+    fetching = true,
     $counter_naive = $root.child("counter_naive"),
     $counter_cas = $root.child("counter_cas"),
     $oplog = $root.child("oplog");
 $counter_naive.on("value", (s) => { 
-  if (s.val()) { 
+  if (s.val()) {
+    fetching = false;
     counter = s.val();
     document.title = "[ " + counter + " ] Counter";
     rerender();
@@ -113,6 +115,7 @@ class Button extends Component {
                       height: 250,
                       viewBox: "0 0 100 100",
                       onclick: () => {
+                        if (!connected || fetching) return;
                         this.setState({pressed: true});
                         $oplog.push().set({
                           from:           counter,
@@ -123,7 +126,7 @@ class Button extends Component {
                         });
                         counter++;
                         $counter_naive.set(counter);
-                        $counter_cas.transaction((x) => x + 1);
+                        $counter_cas.transaction(x => x + 1);
                         setTimeout(() => this.setState({pressed: false}), 100) }},
               h("circle", { cx: 50, cy: 50, r: 45, fill: "none" }),
               h("line", { x1: 20, y1: 50, x2: 80, y2: 50 }),
